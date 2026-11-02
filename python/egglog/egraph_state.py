@@ -10,6 +10,7 @@ import re
 import tempfile
 import weakref
 from base64 import standard_b64decode, standard_b64encode
+from collections.abc import Container
 from dataclasses import InitVar, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO, assert_never, cast, overload
@@ -1309,7 +1310,7 @@ class EGraphState:
         # transform all expressions with multiple parents into a let binding, so that less expressions
         # are sent to egglog. Only for performance reasons.
         if expr_to_let:
-            have_multiple_parents = _exprs_multiple_parents(typed_expr_decl)
+            have_multiple_parents = _exprs_multiple_parents(typed_expr_decl, self.expr_to_letref_cache)
             for expr in reversed(have_multiple_parents):
                 self._transform_let(expr)
 
@@ -1326,13 +1327,13 @@ class EGraphState:
             self.__egg_decls__, self.__egg_decls__.get_callable_decl(typed_expr.expr.callable)
         ):
             return typed_expr
+        if typed_expr.expr in self.expr_to_letref_cache:
+            return None
         # A synthetic let is a top-level binding, so it cannot capture a rule
         # variable (or an invalid top-level unbound variable). Leave those
         # expressions inline for their enclosing command to validate instead.
         if _contains_unbound_var(typed_expr):
             return typed_expr
-        if typed_expr.expr in self.expr_to_letref_cache:
-            return None
         var_decl = LetRefDecl(self._allocate_synthetic_let_name())
         var_egg = self._expr_to_egg(var_decl)
         cmd = bindings.ActionCommand(bindings.Let(span(), var_egg.name, self.typed_expr_to_egg(typed_expr, True)))
@@ -1710,8 +1711,14 @@ def _sanitize_egg_ident(input_string: str) -> str:
     return _EGGLOG_INVALID_IDENT.sub("_", input_string)
 
 
-def _exprs_multiple_parents(typed_expr: TypedExprDecl) -> list[TypedExprDecl]:
-    """Return multiply-parented expressions in deterministic preorder for stable synthetic let names."""
+def _exprs_multiple_parents(
+    typed_expr: TypedExprDecl, bound: Container[ExprDecl] = ()
+) -> list[TypedExprDecl]:
+    """Return multiply-parented expressions in deterministic preorder for stable synthetic let names.
+
+    An expression in `bound` already has a let binding, so the search does not descend into it: everything
+    below it converts as part of that binding.
+    """
     parent_counts: dict[TypedExprDecl, int] = {}
     traversal_order: list[TypedExprDecl] = []
     traversed: set[TypedExprDecl] = set()
@@ -1723,6 +1730,8 @@ def _exprs_multiple_parents(typed_expr: TypedExprDecl) -> list[TypedExprDecl]:
         traversed.add(node)
         if node is not typed_expr:
             traversal_order.append(node)
+            if node.expr in bound:
+                continue
         match node.expr:
             case CallDecl(args=args) | PartialCallDecl(CallDecl(args=args)):
                 for child in args:

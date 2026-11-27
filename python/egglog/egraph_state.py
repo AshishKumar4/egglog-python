@@ -360,7 +360,8 @@ class EGraphState:
         attempted_update = False
         try:
             for declarations in declarations_like:
-                if declarations is None:
+                if declarations is None or self.__egg_decls__.holds(declarations):
+                    # Nothing to merge: the index stays as it is.
                     continue
                 attempted_update = True
                 self.__egg_decls__ |= declarations
@@ -673,6 +674,10 @@ class EGraphState:
                     added_rules = self.rulesets[ident] = set()
                 else:
                     added_rules = self.rulesets[ident]
+                    # Every added rule is one of the ruleset's, so as many as it holds is all of them: a
+                    # schedule run again does not hash each of its rules again.
+                    if len(added_rules) == len(rules):
+                        return
                 for rule in rules:
                     if rule in added_rules:
                         continue

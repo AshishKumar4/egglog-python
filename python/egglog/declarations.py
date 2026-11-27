@@ -206,6 +206,25 @@ class Declarations:
         other.update_other(self)
         return self
 
+    def holds(self, other: DeclarationsLike) -> bool:
+        """
+        Whether merging `other` into these would change nothing: each of its declarations is already
+        this one's, the very object.
+        """
+        if isinstance(other, HasDeclarations):
+            other = other.__egg_decls__
+        if not isinstance(other, Declarations):
+            return False
+        return all(
+            all(mine.get(key) is value for key, value in theirs.items())
+            for mine, theirs in (
+                (self._functions, other._functions),
+                (self._constants, other._constants),
+                (self._classes, other._classes),
+                (self._rulesets, other._rulesets),
+            )
+        )
+
     def update_other(self, other: Declarations) -> None:
         """
         Updates the other decl with these values in place.
@@ -1195,6 +1214,14 @@ class RewriteDecl:
     conditions: tuple[FactDecl, ...]
     subsume: bool
 
+    # Hashed once: a rule is a dictionary key of every run's report and of its ruleset's added rules.
+    def __hash__(self) -> int:
+        return self._cached_hash
+
+    @cached_property
+    def _cached_hash(self) -> int:
+        return hash((self.tp, self.lhs, self.rhs, self.conditions, self.subsume))
+
 
 @dataclass(frozen=True)
 class BiRewriteDecl:
@@ -1202,6 +1229,14 @@ class BiRewriteDecl:
     lhs: ExprDecl
     rhs: ExprDecl
     conditions: tuple[FactDecl, ...]
+
+    # Hashed once: a rule is a dictionary key of every run's report and of its ruleset's added rules.
+    def __hash__(self) -> int:
+        return self._cached_hash
+
+    @cached_property
+    def _cached_hash(self) -> int:
+        return hash((self.tp, self.lhs, self.rhs, self.conditions))
 
 
 RuleEvalMode: TypeAlias = Literal["seminaive", "naive", "unsafe-seminaive"]
@@ -1214,6 +1249,14 @@ class RuleDecl:
     name: str | None
     eval_mode: RuleEvalMode = "seminaive"
     no_decomp: bool = False
+
+    # Hashed once: a rule is a dictionary key of every run's report and of its ruleset's added rules.
+    def __hash__(self) -> int:
+        return self._cached_hash
+
+    @cached_property
+    def _cached_hash(self) -> int:
+        return hash((self.head, self.body, self.name, self.eval_mode, self.no_decomp))
 
 
 @dataclass(frozen=True)
